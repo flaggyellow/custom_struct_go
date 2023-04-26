@@ -162,7 +162,7 @@ func (sl *LockFreeSkipList) Remove(key []byte) bool {
 		return false
 	}
 	removeNode := nexts[0]
-	for level := len(removeNode.nexts) - 1; level > 0; level-- {
+	for level := len(removeNode.nexts) - 1; level >= 0; level-- {
 		next := removeNode.loadNext(level)
 		prevs[level].storeNext(level, next)
 	}

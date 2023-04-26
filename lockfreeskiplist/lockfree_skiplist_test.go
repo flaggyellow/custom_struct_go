@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"math/rand"
+	_ "net/http/pprof"
+	"os"
+	"runtime/pprof"
 	"sync"
 	"testing"
 	"time"
@@ -337,6 +340,14 @@ func TestConccurentSet(t *testing.T) {
 	fmt.Printf("skiplist test:\n")
 
 	start := time.Now()
+	ready := make(chan struct{}, 1)
+	go func() {
+		f, _ := os.Create("cpu.pprof")
+		defer f.Close()
+		_ = pprof.StartCPUProfile(f)
+		<-ready
+		pprof.StopCPUProfile()
+	}()
 
 	// 测试的代码块
 
@@ -352,6 +363,7 @@ func TestConccurentSet(t *testing.T) {
 		}(task)
 	}
 	wg.Wait()
+	ready <- struct{}{}
 
 	elapsed := time.Since(start)
 	fmt.Printf("skiplist Set 执行时间: %s\n", elapsed)
