@@ -63,6 +63,7 @@ func runTestWithParam(ptime int, ctime int, capacity int32, have int32, watermar
 				time.Sleep(time.Nanosecond * time.Duration(ptime))
 			}
 		}
+		sem.Close()
 		wg.Done()
 	}()
 	wg.Wait()
@@ -73,7 +74,7 @@ func TestConcurrency(t *testing.T) {
 	go func() {
 		log.Println(http.ListenAndServe(":6060", nil))
 	}()
-	rounds := 10
+	rounds := 100
 	fmt.Println("TEST1: no limit")
 	for i := 0; i < rounds; i++ {
 		fmt.Printf("round %d --- ", i)

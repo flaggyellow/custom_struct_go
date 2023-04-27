@@ -25,8 +25,6 @@ custom structure for private use
 
 * 如果资源满了生产者还往里放会直接panic；
 
-* 如果生产者退出了还有消费者阻塞在里面，无法唤醒消费者；
-
 -------
 
 ### TODOLIST

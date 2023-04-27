@@ -1,6 +1,7 @@
 package lockfreesemaphore
 
 import (
+	"sync"
 	"sync/atomic"
 )
 
@@ -76,10 +77,13 @@ func (q *waiter_queue) Size() int {
 }
 
 type LockfreeSem struct {
+	wq        *waiter_queue
 	capacity  int32
 	cur       int32
 	watermark int32
-	wq        *waiter_queue
+	// this lock is only for close
+	mu        sync.RWMutex
+	closed    bool
 	notifying bool
 }
 
@@ -97,9 +101,6 @@ func NewLockfreeSem(capacity int32, have int32, watermark int32, consumer_amount
 		q_size *= 2
 	}
 	return &LockfreeSem{
-		capacity:  capacity,
-		cur:       capacity - have,
-		watermark: watermark,
 		wq: &waiter_queue{
 			capacity: q_size,
 			dhead:    0,
@@ -107,6 +108,10 @@ func NewLockfreeSem(capacity int32, have int32, watermark int32, consumer_amount
 			etail:    0,
 			waiters:  make([]waiter, q_size),
 		},
+		capacity:  capacity,
+		cur:       capacity - have,
+		watermark: watermark,
+		closed:    false,
 		notifying: false,
 	}
 }
@@ -114,7 +119,7 @@ func NewLockfreeSem(capacity int32, have int32, watermark int32, consumer_amount
 func (s *LockfreeSem) Acquire(n int32) error {
 	if n > s.capacity {
 		// Don't make other Acquire calls block on one that's doomed to fail.
-		return SemError{"Acquired more than capacity"}
+		return errAquireTooMuch
 	}
 
 	if n <= 0 {
@@ -129,8 +134,14 @@ func (s *LockfreeSem) Acquire(n int32) error {
 		atomic.AddInt32(&s.cur, -1*n)
 	}
 
+	s.mu.RLock()
+	if s.closed {
+		s.mu.RUnlock()
+		return errSemClosed
+	}
 	ready := make(chan struct{}, 1)
 	s.wq.Enqueue(n, ready)
+	s.mu.RUnlock()
 
 	defer close(ready)
 
@@ -154,6 +165,7 @@ func (s *LockfreeSem) notifyWaiters() {
 		return
 	}
 	if !s.notifying {
+		s.mu.RLock()
 		s.notifying = true
 		go func() {
 			for {
@@ -183,7 +195,22 @@ func (s *LockfreeSem) notifyWaiters() {
 			}
 			s.notifying = false
 		}()
+		s.mu.RUnlock()
 	}
+}
+
+// release all of the waiting threads, agree to all current and subsequent acquire requests
+func (s *LockfreeSem) Close() {
+	s.mu.Lock()
+	s.closed = true
+	// wait the dequeue thread to exit
+	for s.notifying {
+	}
+	for s.wq.Front() != nil {
+		w := s.wq.Dequeue()
+		w.ready <- struct{}{}
+	}
+	s.mu.Unlock()
 }
 
 type SemError struct {
@@ -193,3 +220,6 @@ type SemError struct {
 func (e SemError) Error() string {
 	return e.err
 }
+
+var errAquireTooMuch SemError = SemError{"Acquired more than capacity"}
+var errSemClosed SemError = SemError{"This Semaphore has been closed"}
